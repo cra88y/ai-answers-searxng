@@ -69,7 +69,14 @@ INTERACTIVE_CSS = '''
                             gap: 0.5rem;
                             margin-top: 0.5rem;
                             opacity: 0;
-                            animation: sxng-fade-in-up 0.5s ease-out forwards;
+                            /* visibility:hidden keeps the footer in flow (reserves its height)
+                               so revealing it on completion never shifts the layout. */
+                            visibility: hidden;
+                            transition: opacity 0.4s ease, visibility 0.4s ease;
+                        }
+                        .sxng-footer.sxng-ready {
+                            opacity: 1;
+                            visibility: visible;
                         }
                         .sxng-btn {
                             display: inline-flex;
@@ -176,7 +183,7 @@ INTERACTIVE_CSS = '''
 '''
 
 INTERACTIVE_HTML = '''
-                    <div id="sxng-footer" class="sxng-footer" style="display:none;">
+                    <div id="sxng-footer" class="sxng-footer" style="visibility:hidden;">
                         <button class="sxng-btn" id="btn-copy" title="Copy to clipboard">
                             <svg viewBox="0 0 24 24"><path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1M19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5M19 21H8V7H19V21Z"/></svg>
                         </button>
@@ -334,9 +341,8 @@ INTERACTIVE_JS = r'''
                                             data.appendChild(injectCitations(turn.content));
                                         }
                                     });
-                                    box.style.display = 'block';
-                                    if(wrapper) wrapper.style.display = '';
-                                    if(footer && is_interactive) footer.style.display = 'flex';
+                                    if(footer && is_interactive) footer.classList.add('sxng-ready');
+                                    if (details) details.open = true;
                                     restored = true;
                                 }
                             } catch(e) { console.warn('Restore failed', e); }
@@ -355,7 +361,7 @@ INTERACTIVE_JS = r'''
 
                         document.getElementById('btn-regen').onclick = async () => {
                             data.innerHTML = '<span class="sxng-cursor"></span>';
-                            footer.style.display = 'none';
+                            footer.classList.remove('sxng-ready');
                             
                             if (conversation.turns.length > 0 && conversation.turns[conversation.turns.length - 1].role === 'assistant') {
                                 conversation.turns.pop();
@@ -388,7 +394,7 @@ INTERACTIVE_JS = r'''
 
                             input.value = '';
                             input.blur();
-                            footer.style.display = 'none';
+                            footer.classList.remove('sxng-ready');
 
                             if (val) {
                                 const cursor = data.querySelector('.sxng-cursor');
@@ -462,8 +468,8 @@ FRONTEND_JS_TEMPLATE = r"""
     };
     const box = document.getElementById('sxng-stream-box');
     const data = document.getElementById('sxng-stream-data');
-    const wrapper = box.closest('.answer');
-    if (wrapper) wrapper.style.display = 'none';
+    const details = box.querySelector('.sxng-stream-details');
+    const statusSpan = box.querySelector('.sxng-stream-status');
     let restored = false;
     let isStreaming = false;
     
@@ -486,8 +492,9 @@ FRONTEND_JS_TEMPLATE = r"""
         isStreaming = true;
         try {
             const ctx = auxContext || conversation.originalContext;
-            if (wrapper) wrapper.style.display = '';
-            box.style.display = 'block';
+            
+            // Inner box height is fixed via CSS (.sxng-stream-inner height) ->
+            // identical during loading and after the answer arrives: zero layout shift.
 
             const controller = new AbortController();
             let timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -504,8 +511,10 @@ FRONTEND_JS_TEMPLATE = r"""
             clearTimeout(timeoutId);
             if (!res.ok) {
                 const errSpan = document.createElement('span');
-                errSpan.style.color = '#bf616a';
+                errSpan.style.display = 'block';
+                errSpan.style.color = 'var(--color-result-link)';
                 errSpan.textContent = "Error: " + res.statusText;
+                if (statusSpan) statusSpan.textContent = '(failed)';
                 data.appendChild(errSpan);
                 return;
             }
@@ -513,11 +522,6 @@ FRONTEND_JS_TEMPLATE = r"""
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
             let cursor = data.querySelector('.sxng-cursor');
-            if (!cursor) {
-                cursor = document.createElement('span');
-                cursor.className = 'sxng-cursor';
-                data.appendChild(cursor);
-            }
 
             let started = false;
             let collectedResponse = '';
@@ -699,16 +703,18 @@ FRONTEND_JS_TEMPLATE = r"""
             }
 
             if (!started && !collectedResponse.trim()) {
-                const cursor = data.querySelector('.sxng-cursor');
-                if (cursor) cursor.remove();
+                const cur = data.querySelector('.sxng-cursor');
+                if (cur) cur.remove();
                 
                 const errSpan = document.createElement('span');
                 if (thoughtDiv && thoughtDiv.textContent.trim().length > 0) {
-                    errSpan.style.color = '#ebcb8b';
+                    errSpan.style.color = 'var(--color-query-result-link, #ebcb8b)';
                     errSpan.textContent = 'Model provided reasoning but stopped before the final answer. Try adjusting token limits.';
+                    if (statusSpan) statusSpan.textContent = '(reasoning only)';
                 } else {
-                    errSpan.style.color = '#bf616a';
+                    errSpan.style.color = 'var(--color-result-link)';
                     errSpan.textContent = 'No response received. Check API configuration and server logs.';
+                    if (statusSpan) statusSpan.textContent = '(failed)';
                 }
                 data.appendChild(errSpan);
                 return;
@@ -717,8 +723,70 @@ FRONTEND_JS_TEMPLATE = r"""
             __INTERACTIVE_JS_COMPLETE__
 
             if (collectedResponse) {
-                conversation.turns.push({role: 'assistant', content: collectedResponse.trim(), ts: Date.now()});
+                if (statusSpan) {
+                    statusSpan.textContent = '(click to expand)';
+                }
+                
+                // Remove cursor and clear streaming content
+                const cursor = data.querySelector('.sxng-cursor');
+                if (cursor) cursor.remove();
+                data.innerHTML = '';
+                
+                // Truncate content for preview — length tuned to fill the fixed
+                // 7rem inner box so there's no whitespace gap before "Show more".
+                const previewLen = 720;
+                let previewText = collectedResponse.trim();
+                
+                let fullHTMLStr = '';
+                if (previewText.length > previewLen) {
+                    // Prefer a sentence boundary near the target length; fall back to a
+                    // word boundary, then a hard cut. Always keep the start intact.
+                    let breakIdx = previewText.lastIndexOf('. ', previewLen);
+                    const minIdx = Math.floor(previewLen * 0.5);
+                    if (breakIdx < minIdx) breakIdx = previewText.lastIndexOf(' ', previewLen);
+                    if (breakIdx < minIdx) breakIdx = previewLen;
+                    
+                    previewText = previewText.substring(0, breakIdx + 1).trim();
+                    if (!previewText.endsWith('.') && !previewText.endsWith('...')) {
+                        previewText += '...';
+                    }
+                    
+                    // Save full rendered HTML for later
+                    const fullFrag = renderCitations(collectedResponse.trim(), urls);
+                    fullHTMLStr = Array.from(fullFrag.children).map(e => e.outerHTML).join('');
+                    
+                    // Render preview
+                    const previewFrag = renderCitations(previewText, urls);
+                    Array.from(previewFrag.children).forEach(el => data.appendChild(el));
+                } else {
+                    // Short response — render full directly
+                    const frag = renderCitations(previewText, urls);
+                    Array.from(frag.children).forEach(el => data.appendChild(el));
+                }
+                
+                // Inner box has fixed height via CSS; overflow is clipped so the
+                // longer preview fills it without any layout shift.
+                const showMoreWrap = box.querySelector('.sxng-show-more-wrap');
+                const hasTruncation = !!fullHTMLStr;
+                if (hasTruncation && showMoreWrap) {
+                    // Fade in instead of display:none → block (which would shift layout)
+                    showMoreWrap.style.opacity = '1';
+                    showMoreWrap.querySelector('.sxng-show-more-btn').textContent = 'Show more';
+                    showMoreWrap.querySelector('.sxng-show-more-btn').onclick = () => {
+                        data.innerHTML = '';
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = fullHTMLStr;
+                        while (tempDiv.firstChild) data.appendChild(tempDiv.firstChild);
+                        data.style.height = 'auto';
+                        data.style.maxHeight = 'none';
+                        data.style.overflow = 'visible';
+                        if (statusSpan) statusSpan.textContent = '';
+                        showMoreWrap.style.opacity = '0';
+                    };
+                }
             }
+            
+            conversation.turns.push({role: 'assistant', content: collectedResponse.trim(), ts: Date.now()});
             
             // Save state if this was an initial generation or a regeneration
             if (arguments.length === 0 && typeof updateState === 'function') {
@@ -728,22 +796,22 @@ FRONTEND_JS_TEMPLATE = r"""
         } catch (e) {
             console.error('[AI Answers] Fatal stream exception:', e);
             const errSpan = document.createElement('span');
-            errSpan.style.cssText = 'color: #bf616a; font-weight: bold; display: block; margin-top: 0.5rem;';
-            
-            if (e.name === 'AbortError') {
-                errSpan.textContent = "⚠️ Connection to AI provider timed out.";
-            } else {
-                errSpan.textContent = "⚠️ AI Widget encountered a fatal error. Check browser console.";
-            }
+            errSpan.style.color = 'var(--color-result-link)';
+            errSpan.textContent = e.name === 'AbortError' 
+                ? "Connection to AI provider timed out."
+                : "AI Widget encountered a fatal error. Check browser console.";
+            if (statusSpan) statusSpan.textContent = '(error)';
             
             if (data) {
                 const cursor = data.querySelector('.sxng-cursor');
                 if (cursor) cursor.remove();
                 data.appendChild(errSpan);
             }
-        } finally {
-            isStreaming = false;
-        }
+            } finally {
+                isStreaming = false;
+                // Open details on error so user sees the problem
+                if (details) details.open = true;
+            }
     }
 
     if (!restored) startStream();
@@ -1407,7 +1475,7 @@ class SXNGPlugin(Plugin):
             interactive_html = INTERACTIVE_HTML if is_interactive else ''
             interactive_js_init = INTERACTIVE_JS if is_interactive else ''
 
-            interactive_js_complete = "footer.style.display = 'flex';" if is_interactive else ''
+            interactive_js_complete = "footer.classList.add('sxng-ready');" if is_interactive else ''
             stream_fn_sig = 'async function startStream(overrideQ = null, prevAnswer = null, auxContext = null)'
             stream_q = 'overrideQ || q_init' if is_interactive else 'q_init'
             stream_body = f'''prev_answer: prevAnswer''' if is_interactive else ''
@@ -1428,7 +1496,7 @@ class SXNGPlugin(Plugin):
                 .replace("__JS_Q__", js_q)
 
             html_payload = f'''
-                <article id="sxng-stream-box" class="answer" style="display:none; margin: 1rem 0;">
+                <article id="sxng-stream-box" class="answer" style="margin: 1rem 0;">
                     <style>
                         @keyframes sxng-fade-pulse {{
                             0%, 100% {{ opacity: 0.1; }}
@@ -1438,10 +1506,57 @@ class SXNGPlugin(Plugin):
                             from {{ opacity: 0; }}
                             to {{ opacity: 1; }}
                         }}
-                        #sxng-stream-data {{
-                            position: relative;
+                        .sxng-stream-details {{
                             margin: 0;
-                            min-height: 1.5em;
+                        }}
+                        .sxng-stream-details summary {{
+                            cursor: pointer;
+                            font-weight: 600;
+                            user-select: none;
+                            padding: 0.3rem 0;
+                            list-style: none;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 0.4rem;
+                            color: var(--color-result-link, var(--color-query-result-link, #3776ab));
+                            font-size: 0.95rem;
+                        }}
+                        .sxng-stream-details summary::-webkit-details-marker {{
+                            display: none;
+                        }}
+                        .sxng-stream-details summary:hover {{
+                            text-decoration: underline;
+                        }}
+                        .sxng-stream-details summary::before {{
+                            content: "\25BC";
+                            display: inline-block;
+                            transition: transform 0.15s ease;
+                            font-size: 0.75rem;
+                            transform: rotate(0deg);
+                            font-family: "Times New Roman", serif;
+                        }}
+                        .sxng-stream-details[open] summary::before {{
+                            transform: rotate(90deg);
+                        }}
+                        .sxng-stream-inner {{
+                            white-space: pre-wrap;
+                            color: var(--color-result-description);
+                            font-size: 0.95rem;
+                            line-height: 1.45;
+                            margin: 0.5rem 0;
+                            padding-left: 1.2rem;
+                            position: relative;
+                            /* Fixed height from the very first paint -> loading and final
+                               states occupy the exact same box -> no layout shift at all. */
+                            height: 7rem;
+                            overflow: hidden;
+                        }}
+                        .sxng-details-wrap {{
+                            position: relative;
+                            overflow: visible;
+                            /* Floor reserves the full final height up-front (summary +
+                               7rem inner + show-more band) so first paint == final paint. */
+                            min-height: 11.5rem;
                         }}
                         .sxng-cursor {{
                             display: inline-block;
@@ -1461,10 +1576,40 @@ class SXNGPlugin(Plugin):
                                 animation: sxng-fade-in 0.3s ease-out;
                             }}
                         }}
+                        .sxng-show-more-wrap {{
+                            text-align: center;
+                            margin: 0.4rem 0;
+                            opacity: 0;
+                            min-height: 32px;
+                            visibility: visible;
+                        }}
+                        .sxng-show-more-btn {{
+                            background: transparent;
+                            border: 1px dotted var(--color-result-url, var(--color-query-result-url, #3776ab));
+                            color: var(--color-result-url, var(--color-query-result-url, #3776ab));
+                            padding: 0.4rem 1.2rem;
+                            border-radius: 20px;
+                            font-size: 0.88rem;
+                            cursor: pointer;
+                            transition: all 0.15s ease;
+                            font-weight: 500;
+                        }}
+                        .sxng-show-more-btn:hover {{
+                            background: rgb(55, 118, 171, 0.1);
+                            border-style: solid;
+                        }}
                         {interactive_css}
                     </style>
-                    <p id="sxng-stream-data" style="white-space: pre-wrap; color: var(--color-result-description); font-size: 0.95rem; margin:0;"><span class="sxng-cursor"></span></p>
-                    {interactive_html}
+                    <div class="sxng-details-wrap">
+                        <details class="sxng-stream-details" open>
+                            <summary>AI Answer <span class="sxng-stream-status">(loading)</span></summary>
+                            <div id="sxng-stream-data" class="sxng-stream-inner"><span class="sxng-cursor"></span></div>
+                            {interactive_html}
+                        </details>
+                        <div class="sxng-show-more-wrap">
+                            <button class="sxng-show-more-btn">Show more</button>
+                        </div>
+                    </div>
                     <script>
                     {js_code}
                     </script>
