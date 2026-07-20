@@ -470,10 +470,18 @@ FRONTEND_JS_TEMPLATE = r"""
     };
     const box = document.getElementById('sxng-stream-box');
     const data = document.getElementById('sxng-stream-data');
+    const answerWrap = document.getElementById('sxng-answer-wrap');
     const wrapper = box.closest('.answer');
     if (wrapper) wrapper.style.display = 'none';
     let restored = false;
     let isStreaming = false;
+
+    const updateShowMore = () => {
+        if (!answerWrap || !answerWrap.classList.contains('sxng-collapsed')) return;
+        if (data.offsetHeight <= answerWrap.offsetHeight + 10) {
+            answerWrap.classList.remove('sxng-collapsed');
+        }
+    };
     
     __CITATION_HELPER_JS__
 
@@ -732,6 +740,7 @@ FRONTEND_JS_TEMPLATE = r"""
             if (arguments.length === 0 && typeof updateState === 'function') {
                 updateState();
             }
+            updateShowMore();
 
         } catch (e) {
             console.error('[AI Answers] Fatal stream exception:', e);
@@ -895,6 +904,7 @@ class SXNGPlugin(Plugin):
             self.context_shallow_count = 15
 
         self.allowed_tabs = set(t.strip() for t in os.getenv('LLM_TABS', DEFAULT_TABS).split(','))
+        self.collapsed = os.getenv('LLM_COLLAPSED', 'true').lower().strip() in ('true', '1', 'yes', 'on')
         
         preset_url = preset['url']
         if preset_url and '{model}' in preset_url:
@@ -1444,6 +1454,7 @@ class SXNGPlugin(Plugin):
             js_script_root = safe_json((request.script_root if request else '').rstrip('/'))
 
             is_interactive = self.interactive
+            collapsed_class = "sxng-collapsed" if getattr(self, "collapsed", True) else ""
             
             interactive_css = INTERACTIVE_CSS if is_interactive else ''
             interactive_html = INTERACTIVE_HTML if is_interactive else ''
@@ -1503,9 +1514,26 @@ class SXNGPlugin(Plugin):
                                 animation: sxng-fade-in 0.3s ease-out;
                             }}
                         }}
+                        #sxng-answer-wrap {{ position: relative; }}
+                        #sxng-answer-wrap.sxng-collapsed {{ height: 14rem; overflow: hidden; }}
+                        .sxng-show-more-wrap {{
+                            display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 4rem;
+                            background: linear-gradient(to bottom, transparent, var(--color-base-background, #fff));
+                            align-items: flex-end; justify-content: center; padding-bottom: 0.5rem;
+                        }}
+                        #sxng-answer-wrap.sxng-collapsed .sxng-show-more-wrap {{ display: flex; }}
+                        .sxng-show-more-btn {{
+                            background: var(--color-base-background, #fff); border: 1px solid var(--color-result-link, #5e81ac);
+                            border-radius: 12px; padding: 4px 12px; cursor: pointer; color: var(--color-result-link, #5e81ac); font-size: 0.85rem; z-index: 10;
+                        }}
                         {interactive_css}
                     </style>
-                    <p id="sxng-stream-data" style="white-space: pre-wrap; color: var(--color-result-description); font-size: 0.95rem; margin:0;"><span class="sxng-cursor"></span></p>
+                    <div id="sxng-answer-wrap" class="{collapsed_class}">
+                        <p id="sxng-stream-data" style="white-space: pre-wrap; color: var(--color-result-description); font-size: 0.95rem; margin:0;"><span class="sxng-cursor"></span></p>
+                        <div class="sxng-show-more-wrap" onclick="document.getElementById('sxng-answer-wrap').classList.remove('sxng-collapsed'); this.style.display='none';">
+                            <button class="sxng-show-more-btn">Show more</button>
+                        </div>
+                    </div>
                     {interactive_html}
                     <script>
                     {js_code}
