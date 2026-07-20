@@ -863,6 +863,22 @@ class SXNGPlugin(Plugin):
             logger.warning(f"{PLUGIN_NAME}: Invalid LLM_MAX_TOKENS value. Enforcing default (500).")
             self.max_tokens = 500
         try:
+            self.reasoning_max_tokens = max(0, int(os.getenv('LLM_REASONING_MAX_TOKENS', 0)))
+        except ValueError:
+            logger.warning(f"{PLUGIN_NAME}: Invalid LLM_REASONING_MAX_TOKENS value. Enforcing default (0).")
+            self.reasoning_max_tokens = 0
+        self.extra_body = {}
+        raw_extra_body = os.getenv('LLM_EXTRA_BODY', '').strip()
+        if raw_extra_body:
+            try:
+                parsed = json.loads(raw_extra_body)
+                if isinstance(parsed, dict):
+                    self.extra_body = parsed
+                else:
+                    logger.warning(f"{PLUGIN_NAME}: LLM_EXTRA_BODY must be a JSON object. Ignoring.")
+            except json.JSONDecodeError as e:
+                logger.warning(f"{PLUGIN_NAME}: Invalid JSON in LLM_EXTRA_BODY ({e}). Ignoring.")
+        try:
             self.temperature = float(os.getenv('LLM_TEMPERATURE', 0.2))
         except ValueError:
             logger.warning(f"{PLUGIN_NAME}: Invalid LLM_TEMPERATURE value. Enforcing default (0.2).")
@@ -1090,9 +1106,12 @@ class SXNGPlugin(Plugin):
                 instructions.append(history_rule)
 
             numbered_instructions = "\n".join(f"{i+1}. {r}" for i, r in enumerate(instructions))
-            prompt = f"""<system>{SYSTEM}</system>
+            system_message = f"""{SYSTEM}
 
-<GROUNDING_SOURCES>
+<CORE_DIRECTIVES>
+{numbered_instructions}
+</CORE_DIRECTIVES>"""
+            user_message = f"""<GROUNDING_SOURCES>
 {context_text or 'None.'}
 </GROUNDING_SOURCES>
 
@@ -1100,11 +1119,7 @@ class SXNGPlugin(Plugin):
 {prev_answer or 'None.'}
 </HISTORY>
 
-<USER_QUERY>{q}</USER_QUERY>
-
-<CORE_DIRECTIVES>
-{numbered_instructions}
-</CORE_DIRECTIVES>"""
+<USER_QUERY>{q}</USER_QUERY>"""
 
             def stream_gemini():
                 if '?' in self.endpoint_url:
@@ -1115,7 +1130,11 @@ class SXNGPlugin(Plugin):
                 conn = None
                 try:
                     conn, path = _get_streaming_connection(url)
-                    payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": min(self.max_tokens * 4, 8192), "temperature": self.temperature}})
+                    payload = json.dumps({
+                        "systemInstruction": {"parts": [{"text": system_message}]},
+                        "contents": [{"parts": [{"text": user_message}]}],
+                        "generationConfig": {"maxOutputTokens": min((self.max_tokens + self.reasoning_max_tokens) * 4, 8192), "temperature": self.temperature}
+                    })
                     conn.request("POST", path, body=payload.encode('utf-8'), headers={"Content-Type": "application/json"})
                     res = conn.getresponse()
                      
@@ -1197,13 +1216,18 @@ class SXNGPlugin(Plugin):
                 conn = None
                 try:
                     conn, path = _get_streaming_connection(self.endpoint_url)
-                    payload = json.dumps({
+                    body = {
                         "model": self.model,
-                        "messages": [{"role": "user", "content": prompt}],
+                        "messages": [
+                            {"role": "system", "content": system_message},
+                            {"role": "user", "content": user_message}
+                        ],
                         "stream": True,
-                        "max_tokens": self.max_tokens,
+                        "max_tokens": self.max_tokens + self.reasoning_max_tokens,
                         "temperature": self.temperature
-                    })
+                    }
+                    body.update(self.extra_body)
+                    payload = json.dumps(body)
                     headers = {
                         "Content-Type": "application/json",
                         "Accept": "text/event-stream",
