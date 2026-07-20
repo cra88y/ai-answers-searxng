@@ -841,6 +841,7 @@ class SXNGPlugin(Plugin):
             self.model = ''
             self.is_gemini = False
             self.api_key = ''
+            logger.warning(f"{PLUGIN_NAME}: Neither LLM_PROVIDER nor LLM_URL is set; the AI answer box will not activate.")
             return
         
         if raw_provider not in PROVIDER_PRESETS:
@@ -885,6 +886,8 @@ class SXNGPlugin(Plugin):
         
         raw_url = os.getenv('LLM_URL', '').strip() or preset_url
         if not raw_url.startswith(('http://', 'https://')):
+            logger.warning(f"{PLUGIN_NAME}: LLM_URL has no scheme; assuming https://. "
+                           "Local providers usually need an explicit http:// prefix.")
             raw_url = f"https://{raw_url}"
         self.endpoint_url = raw_url
         
@@ -904,6 +907,13 @@ class SXNGPlugin(Plugin):
         self.secret = hashlib.sha256(f"ai_answers_{server_secret}".encode()).hexdigest()
         
         self.system_prompt = os.getenv('LLM_SYSTEM_PROMPT', '').strip()
+
+        if not self.api_key:
+            logger.warning(f"{PLUGIN_NAME}: LLM_KEY is not set; the AI answer box will not activate.")
+        logger.info(
+            f"{PLUGIN_NAME}: provider={self.provider} model={self.model} endpoint={self.endpoint_url} "
+            f"max_tokens={self.max_tokens}"
+        )
 
     def _parse_aux_results(self, raw_results, raw_infoboxes, raw_answers):
         results = []
