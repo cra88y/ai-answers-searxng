@@ -183,7 +183,7 @@ INTERACTIVE_HTML = '''
                         <button class="sxng-btn" id="btn-regen" title="Regenerate answer">
                             <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4C7.58 4 4.01 7.58 4.01 12C4.01 16.42 7.58 20 12 20C15.73 20 18.84 17.45 19.73 14H17.65C16.83 16.33 14.61 18 12 18C8.69 18 6 15.31 6 12C6 8.69 8.69 6 12 6C13.66 6 15.14 6.69 16.22 7.78L13 11H20V4L17.65 6.35Z"/></svg>
                         </button>
-                        <form id="sxng-action-form" class="sxng-input-wrapper" onsubmit="event.preventDefault();">
+                        <form id="sxng-action-form" class="sxng-input-wrapper">
                             <input type="text" id="sxng-action-input" class="sxng-input" placeholder="Ask..." aria-label="Ask follow-up" autocomplete="off">
                             <div class="sxng-input-line"></div>
                             <button type="submit" id="btn-action" class="sxng-input-submit" title="Send / Continue">
@@ -279,9 +279,9 @@ INTERACTIVE_JS = r'''
                                 const encodeB64 = (obj) => {
                                     const u8 = new TextEncoder().encode(JSON.stringify(obj));
                                     let bin = '';
-                                    // Use a loop to avoid RangeError: Maximum call stack size exceeded
-                                    for (let i = 0; i < u8.byteLength; i++) {
-                                        bin += String.fromCharCode(u8[i]);
+                                    const chunkSize = 8192;
+                                    for (let i = 0; i < u8.byteLength; i += chunkSize) {
+                                        bin += String.fromCharCode.apply(null, u8.subarray(i, i + chunkSize));
                                     }
                                     return btoa(bin);
                                 };
@@ -299,7 +299,9 @@ INTERACTIVE_JS = r'''
                         if (location.hash.includes('ai=')) {
                             try {
                                 const b64 = location.hash.split('ai=')[1];
-                                const uint8 = new Uint8Array(atob(b64).split('').map(c => c.charCodeAt(0)));
+                                const bin = atob(b64);
+                                const uint8 = new Uint8Array(bin.length);
+                                for (let i = 0; i < bin.length; i++) uint8[i] = bin.charCodeAt(i);
                                 const json = new TextDecoder().decode(uint8);
                                 const state = JSON.parse(json);
                                 if (state.t && state.t.length > 0) {
@@ -437,12 +439,12 @@ INTERACTIVE_JS = r'''
                             }
                         };
 
-                        document.getElementById('sxng-action-form').onsubmit = handleAction;
-                        input.onfocus = () => {
+                        document.getElementById('sxng-action-form').addEventListener('submit', handleAction);
+                        input.addEventListener('focus', () => {
                             setTimeout(() => {
                                 input.scrollIntoView({behavior: 'smooth', block: 'center'});
                             }, 300);
-                        };
+                        });
 '''
 
 FRONTEND_JS_TEMPLATE = r"""
@@ -454,9 +456,15 @@ FRONTEND_JS_TEMPLATE = r"""
     const b64_init = __B64_CONTEXT__;
     const tk_init = __TK__;
     const script_root = __SCRIPT_ROOT__;
+    const decodeB64 = (b64) => {
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return new TextDecoder().decode(u8);
+    };
     const conversation = {
         originalQuery: q_init,
-        originalContext: new TextDecoder().decode(Uint8Array.from(atob(b64_init), c => c.charCodeAt(0))),
+        originalContext: decodeB64(b64_init),
         originalSources: [...urls],
         turns: [{role: 'user', content: q_init, ts: Date.now()}]
     };
