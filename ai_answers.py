@@ -485,6 +485,8 @@ FRONTEND_JS_TEMPLATE = r"""
     
     __CITATION_HELPER_JS__
 
+    __HIDE_NATIVE_JS__
+
     __INTERACTIVE_JS_INIT__
 
     function synthesizeQuery(original, followup) {
@@ -760,6 +762,7 @@ FRONTEND_JS_TEMPLATE = r"""
             }
         } finally {
             isStreaming = false;
+            if (typeof restoreNativeAnswers === 'function') restoreNativeAnswers();
         }
     }
 
@@ -905,6 +908,7 @@ class SXNGPlugin(Plugin):
 
         self.allowed_tabs = set(t.strip() for t in os.getenv('LLM_TABS', DEFAULT_TABS).split(','))
         self.collapsed = os.getenv('LLM_COLLAPSED', 'true').lower().strip() in ('true', '1', 'yes', 'on')
+        self.hide_native_answers = os.getenv('LLM_HIDE_NATIVE_ANSWERS', 'true').lower().strip() in ('true', '1', 'yes', 'on')
         
         preset_url = preset['url']
         if preset_url and '{model}' in preset_url:
@@ -1455,6 +1459,28 @@ class SXNGPlugin(Plugin):
 
             is_interactive = self.interactive
             collapsed_class = "sxng-collapsed" if getattr(self, "collapsed", True) else ""
+            hide_native = getattr(self, "hide_native_answers", True)
+            
+            hide_native_js = '''
+    const hiddenAnswers = [];
+    function hideNativeAnswers() {
+        const container = box.closest('#answers') || box.parentElement;
+        if (!container) return;
+        Array.from(container.children).forEach(el => {
+            if (el === box || el.contains(box)) return;
+            hiddenAnswers.push([el, el.style.display]);
+            el.style.display = 'none';
+        });
+    }
+    function restoreNativeAnswers() {
+        if (conversation.turns.some(t => t.role === 'assistant')) return;
+        while (hiddenAnswers.length) {
+            const [el, d] = hiddenAnswers.pop();
+            el.style.display = d;
+        }
+    }
+    hideNativeAnswers();
+''' if hide_native else ''
             
             interactive_css = INTERACTIVE_CSS if is_interactive else ''
             interactive_html = INTERACTIVE_HTML if is_interactive else ''
@@ -1470,6 +1496,7 @@ class SXNGPlugin(Plugin):
                 .replace("__TK__", js_tk) \
                 .replace("__SCRIPT_ROOT__", js_script_root) \
                 .replace("__CITATION_HELPER_JS__", CITATION_HELPER_JS) \
+                .replace("__HIDE_NATIVE_JS__", hide_native_js) \
                 .replace("__INTERACTIVE_JS_INIT__", interactive_js_init) \
                 .replace("__STREAM_FN_SIG__", stream_fn_sig) \
                 .replace("__STREAM_Q__", stream_q) \
