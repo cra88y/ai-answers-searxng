@@ -1060,7 +1060,7 @@ class SXNGPlugin(Plugin):
                 "MUST CITE SOURCES by tailing a sentence with [n] or [n,n] etc. If citing general knowledge, use [*].",
                 "Do not use filler words, transitions, or meta-commentary.",
                 "Never explain your process. The user expects a direct response.",
-                "Response format must be plain text with no markdown."
+                "Response format must be plain text with no markdown.",
                 f"High density: Expert-briefing level. Target response length: ~{target_words} words.",
                 "If sources and general knowledge are insufficient, respond with 'Insufficient information to answer.'"
             ]
