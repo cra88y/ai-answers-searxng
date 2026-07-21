@@ -478,6 +478,14 @@ FRONTEND_JS_TEMPLATE = r"""
     let restored = false;
     let isStreaming = false;
 
+    // Set the instant a navigation is committed (e.g. switching result tabs),
+    // before the browser tears down the in-flight fetch. Lets the stream's
+    // catch block distinguish a benign navigation from a real failure.
+    let pageIsUnloading = false;
+    const _markUnloading = () => { pageIsUnloading = true; };
+    window.addEventListener('pagehide', _markUnloading);
+    window.addEventListener('beforeunload', _markUnloading);
+
     const updateShowMore = () => {
         if (!answerWrap || !answerWrap.classList.contains('sxng-collapsed')) return;
         if (data.offsetHeight <= answerWrap.offsetHeight + 10) {
@@ -747,6 +755,13 @@ FRONTEND_JS_TEMPLATE = r"""
             updateShowMore();
 
         } catch (e) {
+            // A tab switch / navigation cancels the in-flight fetch, which
+            // rejects as a network TypeError (not an AbortError). That is
+            // benign, not a real failure — don't flash a scary error while the
+            // page unloads or after the widget has been detached from the DOM.
+            if (pageIsUnloading || !box || !box.isConnected || !data || !data.isConnected) {
+                return; // finally still runs cleanup
+            }
             console.error('[AI Answers] Fatal stream exception:', e);
             const errSpan = document.createElement('span');
             errSpan.style.cssText = 'color: #bf616a; font-weight: bold; display: block; margin-top: 0.5rem;';
