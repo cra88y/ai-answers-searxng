@@ -55,6 +55,7 @@ Configure via the environment variables:
 **UI Settings:**
 - `LLM_COLLAPSED`: Use a collapsible answer box. Default `true`.
 - `LLM_HIDE_NATIVE_ANSWERS`: Hide competing SearXNG answer widgets. Default `true`.
+- `LLM_URL_STATE`: Save/restore conversation in the URL hash fragment (`#ai=`). Default `true`.
 
 ## How It Works
 1 user initial search 

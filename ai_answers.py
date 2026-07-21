@@ -268,6 +268,7 @@ INTERACTIVE_JS = r'''
 
                         // conversation saved as base64 URL fragment.
                         const updateState = () => {
+                            if (!url_state) return;
                             try {
                                 let state = {
                                     t: conversation.turns.map(t => ({
@@ -296,7 +297,7 @@ INTERACTIVE_JS = r'''
                             } catch(e) {}
                         };
 
-                        if (location.hash.includes('ai=')) {
+                        if (url_state && location.hash.includes('ai=')) {
                             try {
                                 const b64 = location.hash.split('ai=')[1];
                                 const bin = atob(b64);
@@ -450,6 +451,7 @@ INTERACTIVE_JS = r'''
 FRONTEND_JS_TEMPLATE = r"""
 (async () => {
     const is_interactive = __IS_INTERACTIVE__;
+    const url_state = __URL_STATE__;
     const q_init = __JS_Q__;
     const lang_init = __JS_LANG__;
     let urls = __JS_URLS__;
@@ -909,6 +911,7 @@ class SXNGPlugin(Plugin):
         self.allowed_tabs = set(t.strip() for t in os.getenv('LLM_TABS', DEFAULT_TABS).split(','))
         self.collapsed = os.getenv('LLM_COLLAPSED', 'true').lower().strip() in ('true', '1', 'yes', 'on')
         self.hide_native_answers = os.getenv('LLM_HIDE_NATIVE_ANSWERS', 'true').lower().strip() in ('true', '1', 'yes', 'on')
+        self.url_state = os.getenv('LLM_URL_STATE', 'true').lower().strip() in ('true', '1', 'yes', 'on')
         
         preset_url = preset['url']
         if preset_url and '{model}' in preset_url:
@@ -1495,6 +1498,7 @@ class SXNGPlugin(Plugin):
             
             js_code = FRONTEND_JS_TEMPLATE \
                 .replace("__IS_INTERACTIVE__", 'true' if is_interactive else 'false') \
+                .replace("__URL_STATE__", 'true' if self.url_state else 'false') \
                 .replace("__TK__", js_tk) \
                 .replace("__SCRIPT_ROOT__", js_script_root) \
                 .replace("__CITATION_HELPER_JS__", CITATION_HELPER_JS) \
