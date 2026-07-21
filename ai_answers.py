@@ -695,6 +695,12 @@ FRONTEND_JS_TEMPLATE = r"""
                     }
                     streamBuffer = '';
                 }
+
+                if (answerWrap && answerWrap.classList.contains('sxng-collapsed')) {
+                    if (data.offsetHeight > answerWrap.offsetHeight) {
+                        answerWrap.classList.add('sxng-is-overflowing');
+                    }
+                }
             };
 
             while (true) {
@@ -1584,7 +1590,7 @@ class SXNGPlugin(Plugin):
                             background: linear-gradient(to bottom, transparent, var(--color-base-background, #fff));
                             align-items: flex-end; justify-content: center; padding-bottom: 0.5rem;
                         }}
-                        #sxng-answer-wrap.sxng-collapsed .sxng-show-more-wrap {{ display: flex; }}
+                        #sxng-answer-wrap.sxng-collapsed.sxng-is-overflowing .sxng-show-more-wrap {{ display: flex; }}
                         .sxng-show-more-btn {{
                             background: var(--color-base-background, #fff); border: 1px solid var(--color-result-link, #5e81ac);
                             border-radius: 12px; padding: 4px 12px; cursor: pointer; color: var(--color-result-link, #5e81ac); font-size: 0.85rem; z-index: 10;
