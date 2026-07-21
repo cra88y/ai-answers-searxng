@@ -13,6 +13,8 @@ Features:
 - native network integration via `searx.network` (respects proxy/SSL settings)
 - stateless conversation persistence/sharability via URL
 - provider detection based on URL
+- collapsible answer box to prevent UI shift
+- reasoning model support (thinking token budget)
 
 
 ## Installation
@@ -47,6 +49,12 @@ Configure via the environment variables:
 - `LLM_INTERACTIVE`: UI mode. Default is `true` (interactive: copy, regenerate, follow up). Set to `false` for simple response only mode.
 - `LLM_QUESTION_MARK_REQUIRED`: Only trigger AI answers when the query contains `?`. Default `false`.
 - `LLM_OLLAMA_UNLOAD_AFTER`: Unload Ollama model after each response. Default `false`.
+**Advanced LLM Settings:**
+- `LLM_REASONING_MAX_TOKENS`: Budget for thinking models (in addition to `LLM_MAX_TOKENS`). Default `0`.
+- `LLM_EXTRA_BODY`: Custom JSON payload merged into the API request.
+**UI Settings:**
+- `LLM_COLLAPSED`: Use a collapsible answer box. Default `true`.
+- `LLM_HIDE_NATIVE_ANSWERS`: Hide competing SearXNG answer widgets. Default `true`.
 
 ## How It Works
 1 user initial search 
@@ -103,8 +111,15 @@ LLM_MODEL=meta-llama/Meta-Llama-3-8B-Instruct
 ```
 
 ## Development
-
 ```bash
 pip install flask flask-babel
 python tests/demo.py   # UI demo at localhost:5000
 ```
+
+## Troubleshooting
+
+- **No module named 'searx.plugins.ai_answers' / plugin ... is not implemented** — the file isn't where SearXNG expects it, or is misnamed. It must be mounted/placed at `searx/plugins/ai_answers.py` exactly (underscore, not hyphen).
+- **[SSL: WRONG_VERSION_NUMBER] or name-resolution errors with a local provider** — your `LLM_URL` is being called over `https`. Use an explicit `http://` prefix for non-TLS local endpoints. The plugin logs a warning at startup when it has to assume a scheme.
+- **Answer box never appears** — check `docker compose logs core` for the plugin's startup line. Missing `LLM_PROVIDER`/`LLM_URL` or `LLM_KEY` is logged as a warning. Also check the plugin is enabled in your own Preferences (it's per-user).
+- **"Model provided reasoning but stopped before the final answer"** — the model spent the whole token budget thinking. Set `LLM_REASONING_MAX_TOKENS` (e.g. `2000`).
+- **Ollama on the Windows host, SearXNG in Docker** — `localhost` inside the container refers to the container itself. Use `LLM_URL=http://host.docker.internal:11434/v1/chat/completions`.
