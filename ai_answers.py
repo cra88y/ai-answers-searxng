@@ -609,21 +609,20 @@ FRONTEND_JS_TEMPLATE = r"""
                 }
             };
 
+            const raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 16));
+            let chunkQueue = '';
+            let renderQueued = false;
             let streamBuffer = '';
-            while (true) {
-                const {done, value} = await reader.read();
-                if (done) break;
 
-                clearTimeout(timeoutId);
-                timeoutId = setTimeout(() => controller.abort(), 60000);
-
-                const chunk = decoder.decode(value, {stream: true});
-                if (!chunk) continue;
+            const processQueue = () => {
+                renderQueued = false;
+                if (!chunkQueue) return;
                 
-                streamBuffer += chunk;
+                streamBuffer += chunkQueue;
+                chunkQueue = '';
                 
                 if (streamBuffer.match(/<\/?(?:t(?:h(?:i(?:n(?:k)?)?)?)?)?$/)) {
-                    continue; 
+                    return; 
                 }
 
                 while (true) {
@@ -692,6 +691,26 @@ FRONTEND_JS_TEMPLATE = r"""
                         collectedResponse += streamBuffer; 
                     }
                     streamBuffer = '';
+                }
+            };
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) {
+                    if (chunkQueue) processQueue();
+                    break;
+                }
+
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => controller.abort(), 60000);
+
+                const chunk = decoder.decode(value, {stream: true});
+                if (!chunk) continue;
+                
+                chunkQueue += chunk;
+                if (!renderQueued) {
+                    renderQueued = true;
+                    raf(processQueue);
                 }
             }
             
