@@ -774,12 +774,8 @@ FRONTEND_JS_TEMPLATE = r"""
             updateShowMore();
 
         } catch (e) {
-            // A tab switch / navigation cancels the in-flight fetch, which
-            // rejects as a network TypeError (not an AbortError). That is
-            // benign, not a real failure — don't flash a scary error while the
-            // page unloads or after the widget has been detached from the DOM.
             if (pageIsUnloading || !box || !box.isConnected || !data || !data.isConnected) {
-                return; // finally still runs cleanup
+                return;
             }
             console.error('[AI Answers] Fatal stream exception:', e);
             const errSpan = document.createElement('span');
