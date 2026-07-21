@@ -1,4 +1,4 @@
-import json, os, logging, base64, time, hashlib, codecs, re, http.client, ssl
+import json, os, logging, base64, time, hashlib, codecs, re, http.client, ssl, hmac
 from urllib.parse import urlparse
 from searx import network
 try:
@@ -934,6 +934,8 @@ class SXNGPlugin(Plugin):
             except Exception:
                 self.ollama_unload_url = "http://localhost:11434/api/chat"
         server_secret = settings.get('server', {}).get('secret_key', '')
+        if not server_secret or server_secret == 'ultrasecretkey':
+            logger.warning(f"{PLUGIN_NAME}: SearXNG server.secret_key is unset or default ('ultrasecretkey'); tokens are insecure!")
         self.secret = hashlib.sha256(f"ai_answers_{server_secret}".encode()).hexdigest()
         
         self.system_prompt = os.getenv('LLM_SYSTEM_PROMPT', '').strip()
@@ -1004,8 +1006,8 @@ class SXNGPlugin(Plugin):
             # Token access control
             try:
                 ts, sig = token.rsplit('.', 1)
-                expected = hashlib.sha256(f"{ts}{self.secret}".encode()).hexdigest()
-                if sig != expected or (time.time() - float(ts)) > TOKEN_EXPIRY_SEC:
+                expected = hmac.new(self.secret.encode('utf-8'), ts.encode('utf-8'), hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(sig, expected) or (time.time() - float(ts)) > TOKEN_EXPIRY_SEC:
                     abort(403)
             except (ValueError, KeyError, AttributeError):
                 abort(403)
@@ -1071,8 +1073,8 @@ class SXNGPlugin(Plugin):
             
             try:
                 ts, sig = token.rsplit('.', 1)
-                expected = hashlib.sha256(f"{ts}{self.secret}".encode()).hexdigest()
-                if sig != expected or (time.time() - float(ts)) > TOKEN_EXPIRY_SEC:
+                expected = hmac.new(self.secret.encode('utf-8'), ts.encode('utf-8'), hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(sig, expected) or (time.time() - float(ts)) > TOKEN_EXPIRY_SEC:
                     abort(403)
             except (ValueError, KeyError, AttributeError):
                 abort(403)
@@ -1439,7 +1441,7 @@ class SXNGPlugin(Plugin):
             ts = str(int(time.time()))
             q_clean = search.search_query.query.strip()
             lang = search.search_query.lang
-            sig = hashlib.sha256(f"{ts}{self.secret}".encode()).hexdigest()
+            sig = hmac.new(self.secret.encode('utf-8'), ts.encode('utf-8'), hashlib.sha256).hexdigest()
             tk = f"{ts}.{sig}"
             
             # XSS blocking

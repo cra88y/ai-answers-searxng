@@ -110,6 +110,12 @@ LLM_KEY=hf_xxx
 LLM_MODEL=meta-llama/Meta-Llama-3-8B-Instruct
 ```
 
+## Security Notes
+
+- **Signed Tokens:** Streaming endpoints require HMAC-SHA256 signed tokens derived from `server.secret_key` with a 1-hour TTL.
+- **Secret Hygiene:** Ensure `server.secret_key` is set in `settings.yml`. Unset or default secrets (`ultrasecretkey`) will trigger a startup warning.
+- **Client Protection:** API keys and provider endpoints are processed strictly server-side and are never exposed to the browser.
+
 ## Development
 ```bash
 pip install flask flask-babel
