@@ -552,6 +552,9 @@ FRONTEND_JS_TEMPLATE = r"""
             const flushBuffer = (force = false) => {
                 if (!buffer) return;
                 
+                buffer = buffer.replace(/\[(?:KNOWLEDGE GRAPH|INFOBOX|\*)\]/g, '');
+                if (!buffer) return;
+                
                 if (force) {
                     const fragment = renderCitations(buffer, urls);
                     if (cursor) cursor.before(fragment);
