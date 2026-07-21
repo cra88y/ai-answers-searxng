@@ -478,9 +478,6 @@ FRONTEND_JS_TEMPLATE = r"""
     let restored = false;
     let isStreaming = false;
 
-    // Set the instant a navigation is committed (e.g. switching result tabs),
-    // before the browser tears down the in-flight fetch. Lets the stream's
-    // catch block distinguish a benign navigation from a real failure.
     let pageIsUnloading = false;
     const _markUnloading = () => { pageIsUnloading = true; };
     window.addEventListener('pagehide', _markUnloading);
@@ -1120,7 +1117,7 @@ class SXNGPlugin(Plugin):
                 "MUST CITE SOURCES by tailing a sentence with [n] or [n,n] etc. If citing general knowledge, use [*].",
                 "Do not use filler words, transitions, or meta-commentary.",
                 "Never explain your process. The user expects a direct response.",
-                "Response format must be plain text with no markdown.",
+                "Response format must be plain text with no markdown. Break the answer into short paragraphs (2-4 sentences each) separated by a blank line.",
                 f"High density: Expert-briefing level. Target response length: ~{target_words} words.",
                 "If sources and general knowledge are insufficient, respond with 'Insufficient information to answer.'"
             ]
