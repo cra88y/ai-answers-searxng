@@ -194,55 +194,167 @@ INTERACTIVE_HTML = '''
 '''
 
 CITATION_HELPER_JS = r'''
-                        function renderCitations(text, urls) {
-                            const fragment = document.createDocumentFragment();
-                            const re = /\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]/g;
-                            let lastIdx = 0;
-                            const matches = [...text.matchAll(re)];
-                            
-                            matches.forEach(match => {
-                                if (match.index > lastIdx) {
-                                    const s = document.createElement('span');
-                                    s.className = 'sxng-chunk';
-                                    s.textContent = text.substring(lastIdx, match.index);
-                                    fragment.appendChild(s);
-                                }
-                                match[1].split(/\s*,\s*/).forEach(n => {
-                                    const idx = parseInt(n.trim());
-                                    if (idx >= 1 && idx <= urls.length) {
-                                        const url = urls[idx-1];
-                                        if (url) {
-                                            const a = document.createElement('a');
-                                            a.href = url;
-                                            a.target = '_blank';
-                                            a.style.cssText = 'text-decoration:none;color:var(--color-result-link);font-weight:bold;';
-                                            a.textContent = `[${n.trim()}]`;
-                                            a.className = 'sxng-chunk';
-                                            fragment.appendChild(a);
-                                        } else {
-                                            const s = document.createElement('span');
-                                            s.className = 'sxng-chunk';
-                                            s.textContent = `[${n.trim()}]`;
-                                            fragment.appendChild(s);
-                                        }
-                                    } else {
-                                        const s = document.createElement('span');
-                                        s.className = 'sxng-chunk';
-                                        s.textContent = `[${n.trim()}]`;
-                                        fragment.appendChild(s);
-                                    }
-                                });
-                                lastIdx = match.index + match[0].length;
-                            });
-                            
-                            if (lastIdx < text.length) {
-                                const s = document.createElement('span');
-                                s.className = 'sxng-chunk';
-                                // Preserve whitespace by not trimming
-                                s.textContent = text.substring(lastIdx);
-                                fragment.appendChild(s);
+                        function safeHttpUrl(value) {
+                            if (typeof value !== 'string' || !value.trim()) return null;
+                            try {
+                                const parsed = new URL(value, location.href);
+                                return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null;
+                            } catch (e) {
+                                return null;
                             }
-                            return fragment;
+                        }
+
+                        function appendCitation(parent, citation, urls) {
+                            citation.slice(1, -1).split(/\s*,\s*/).forEach(n => {
+                                const idx = parseInt(n, 10);
+                                const url = idx >= 1 && idx <= urls.length ? safeHttpUrl(urls[idx - 1]) : null;
+                                const node = url ? document.createElement('a') : document.createElement('span');
+                                node.textContent = `[${n}]`;
+                                node.className = 'sxng-citation';
+                                if (url) {
+                                    node.href = url;
+                                    node.target = '_blank';
+                                    node.rel = 'noopener noreferrer';
+                                }
+                                parent.appendChild(node);
+                            });
+                        }
+
+                        function appendInlineMarkdown(parent, text, urls) {
+                            let pos = 0;
+                            const appendText = value => parent.appendChild(document.createTextNode(value));
+                            while (pos < text.length) {
+                                const rest = text.substring(pos);
+                                let match;
+
+                                if (rest[0] === '`' && (match = rest.match(/^`([^`\n]+)`/))) {
+                                    const code = document.createElement('code');
+                                    code.textContent = match[1];
+                                    parent.appendChild(code);
+                                    pos += match[0].length;
+                                    continue;
+                                }
+                                if (rest[0] === '[' && (match = rest.match(/^\[([^\]\n]+)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/))) {
+                                    const safeUrl = safeHttpUrl(match[2]);
+                                    if (safeUrl) {
+                                        const link = document.createElement('a');
+                                        link.href = safeUrl;
+                                        link.target = '_blank';
+                                        link.rel = 'noopener noreferrer';
+                                        appendInlineMarkdown(link, match[1], urls);
+                                        parent.appendChild(link);
+                                    } else {
+                                        appendText(match[0]);
+                                    }
+                                    pos += match[0].length;
+                                    continue;
+                                }
+                                if (rest[0] === '[' && (match = rest.match(/^\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]/))) {
+                                    appendCitation(parent, match[0], urls);
+                                    pos += match[0].length;
+                                    continue;
+                                }
+                                if ((rest.startsWith('**') || rest.startsWith('__')) &&
+                                    (match = rest.match(/^(\*\*|__)(?=\S)([\s\S]*?\S)\1/))) {
+                                    const strong = document.createElement('strong');
+                                    appendInlineMarkdown(strong, match[2], urls);
+                                    parent.appendChild(strong);
+                                    pos += match[0].length;
+                                    continue;
+                                }
+                                if ((rest[0] === '*' || rest[0] === '_') &&
+                                    (match = rest.match(/^(\*|_)(?=\S)([^\n]*?\S)\1/))) {
+                                    const em = document.createElement('em');
+                                    appendInlineMarkdown(em, match[2], urls);
+                                    parent.appendChild(em);
+                                    pos += match[0].length;
+                                    continue;
+                                }
+
+                                const next = rest.slice(1).search(/[`[*_]/);
+                                const length = next === -1 ? rest.length : next + 1;
+                                appendText(rest.substring(0, length));
+                                pos += length;
+                            }
+                        }
+
+                        function renderMarkdown(target, markdown, urls) {
+                            target.replaceChildren();
+                            const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+                            const startsBlock = line => /^(?:\s*$|#{1,6}\s+|>\s?|\s*(?:[-+*]|\d+[.)])\s+|\s{0,3}(?:`{3,}|~{3,}))/.test(line);
+                            let i = 0;
+
+                            while (i < lines.length) {
+                                const line = lines[i];
+                                if (!line.trim()) { i++; continue; }
+
+                                let match = line.match(/^\s{0,3}(`{3,}|~{3,})\s*([\w+-]*)\s*$/);
+                                if (match) {
+                                    const fenceChar = match[1][0];
+                                    const fenceLength = match[1].length;
+                                    const language = match[2];
+                                    const codeLines = [];
+                                    i++;
+                                    const closesFence = value => {
+                                        const candidate = value.trim();
+                                        return candidate.length >= fenceLength &&
+                                            candidate.split('').every(char => char === fenceChar);
+                                    };
+                                    while (i < lines.length && !closesFence(lines[i])) codeLines.push(lines[i++]);
+                                    if (i < lines.length) i++;
+                                    const pre = document.createElement('pre');
+                                    const code = document.createElement('code');
+                                    if (language) code.className = `language-${language.replace(/[^\w+-]/g, '')}`;
+                                    code.textContent = codeLines.join('\n');
+                                    pre.appendChild(code);
+                                    target.appendChild(pre);
+                                    continue;
+                                }
+
+                                match = line.match(/^(#{1,6})\s+(.+)$/);
+                                if (match) {
+                                    const heading = document.createElement(`h${match[1].length}`);
+                                    appendInlineMarkdown(heading, match[2].replace(/\s+#+\s*$/, ''), urls);
+                                    target.appendChild(heading);
+                                    i++;
+                                    continue;
+                                }
+
+                                if (/^>\s?/.test(line)) {
+                                    const quoteLines = [];
+                                    while (i < lines.length && /^>\s?/.test(lines[i])) quoteLines.push(lines[i++].replace(/^>\s?/, ''));
+                                    const quote = document.createElement('blockquote');
+                                    renderMarkdown(quote, quoteLines.join('\n'), urls);
+                                    target.appendChild(quote);
+                                    continue;
+                                }
+
+                                match = line.match(/^\s*((?:[-+*])|(?:\d+[.)]))\s+(.+)$/);
+                                if (match) {
+                                    const ordered = /^\d/.test(match[1]);
+                                    const list = document.createElement(ordered ? 'ol' : 'ul');
+                                    while (i < lines.length) {
+                                        const itemMatch = lines[i].match(/^\s*((?:[-+*])|(?:\d+[.)]))\s+(.+)$/);
+                                        if (!itemMatch || /^\d/.test(itemMatch[1]) !== ordered) break;
+                                        const item = document.createElement('li');
+                                        appendInlineMarkdown(item, itemMatch[2], urls);
+                                        list.appendChild(item);
+                                        i++;
+                                    }
+                                    target.appendChild(list);
+                                    continue;
+                                }
+
+                                const paragraphLines = [line];
+                                i++;
+                                while (i < lines.length && !startsBlock(lines[i])) paragraphLines.push(lines[i++]);
+                                const paragraph = document.createElement('p');
+                                paragraphLines.forEach((part, idx) => {
+                                    if (idx) paragraph.appendChild(document.createElement('br'));
+                                    appendInlineMarkdown(paragraph, part, urls);
+                                });
+                                target.appendChild(paragraph);
+                            }
                         }
 '''
 
@@ -273,7 +385,7 @@ INTERACTIVE_JS = r'''
                                 let state = {
                                     t: conversation.turns.map(t => ({
                                         r: t.role === 'user' ? 'u' : 'a',
-                                        c: t.content.replace(/\s+/g, ' ').trim()
+                                        c: t.content.trim()
                                     })),
                                     u: urls
                                 };
@@ -317,10 +429,6 @@ INTERACTIVE_JS = r'''
                                         ts: 0
                                     }));
                                     
-                                    const injectCitations = (text) => {
-                                        return renderCitations(text, urls);
-                                    };
-                                    
                                     data.innerHTML = '';
                                     conversation.turns.forEach((turn, i) => {
                                         if (turn.role === 'user') {
@@ -334,7 +442,10 @@ INTERACTIVE_JS = r'''
                                                 data.appendChild(clr);
                                             }
                                         } else {
-                                            data.appendChild(injectCitations(turn.content));
+                                            const answer = document.createElement('div');
+                                            answer.className = 'sxng-markdown sxng-chunk';
+                                            renderMarkdown(answer, turn.content, urls);
+                                            data.appendChild(answer);
                                         }
                                     });
                                     box.style.display = 'block';
@@ -347,10 +458,10 @@ INTERACTIVE_JS = r'''
                         document.getElementById('btn-copy').onclick = async (e) => {
                             const btn = e.currentTarget;
                             const originalContent = btn.innerHTML;
-                            const text = Array.from(data.childNodes)
-                                .filter(n => n.nodeType === 3 || n.tagName === 'SPAN')
-                                .map(n => n.textContent)
-                                .join('');
+                            const text = Array.from(data.querySelectorAll('.sxng-markdown'))
+                                .map(node => node.innerText.trim())
+                                .filter(Boolean)
+                                .join('\n\n');
                             await navigator.clipboard.writeText(text);
                             btn.innerHTML = '<svg viewBox="0 0 24 24" style="color:#a3be8c;"><path d="M9 16.17L4.83 12L3.41 13.41L9 19L21 7L19.59 5.59L9 16.17Z"/></svg>';
                             setTimeout(() => btn.innerHTML = originalContent, 2000);
@@ -547,69 +658,13 @@ FRONTEND_JS_TEMPLATE = r"""
             let started = false;
             let collectedResponse = '';
             let isThinking = false, thoughtDiv = null;
+            const responseEl = document.createElement('div');
+            responseEl.className = 'sxng-markdown sxng-chunk';
+            cursor.before(responseEl);
 
-            let buffer = '';
-            const flushBuffer = (force = false) => {
-                if (!buffer) return;
-                
-                buffer = buffer.replace(/\[(?:KNOWLEDGE GRAPH|INFOBOX|\*)\]/g, '');
-                if (!buffer) return;
-                
-                if (force) {
-                    const fragment = renderCitations(buffer, urls);
-                    if (cursor) cursor.before(fragment);
-                    else data.appendChild(fragment);
-                    buffer = '';
-                    return;
-                }
-
-                while (true) {
-                    const match = buffer.match(/(\[\d+(?:,\s*\d+)*\])/);
-                    
-                    if (!match) break;
-                    
-                    const preText = buffer.substring(0, match.index);
-                    if (preText) {
-                        const s = document.createElement('span');
-                        s.className = 'sxng-chunk';
-                        s.textContent = preText;
-                        cursor.before(s);
-                    }
-
-                    const citationText = match[0];
-                    const fragment = renderCitations(citationText, urls);
-                    cursor.before(fragment);
-
-                    buffer = buffer.substring(match.index + match[0].length);
-                }
-
-                const openIdx = buffer.lastIndexOf('[');
-                if (openIdx === -1) {
-                    if (buffer) {
-                        const s = document.createElement('span');
-                        s.className = 'sxng-chunk';
-                        s.textContent = buffer;
-                        cursor.before(s);
-                        buffer = '';
-                    }
-                } else {
-                    const safeChunk = buffer.substring(0, openIdx);
-                    if (safeChunk) {
-                        const s = document.createElement('span');
-                        s.className = 'sxng-chunk';
-                        s.textContent = safeChunk;
-                        cursor.before(s);
-                    }
-                    buffer = buffer.substring(openIdx);
-                    
-                    if (buffer.length > 50) {
-                        const s = document.createElement('span');
-                        s.className = 'sxng-chunk';
-                        s.textContent = buffer[0];
-                        cursor.before(s);
-                        buffer = buffer.substring(1);
-                    }
-                }
+            const renderResponse = () => {
+                const cleanResponse = collectedResponse.replace(/\[(?:KNOWLEDGE GRAPH|INFOBOX|\*)\]/g, '');
+                renderMarkdown(responseEl, cleanResponse, urls);
             };
 
             const raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 16));
@@ -646,10 +701,11 @@ FRONTEND_JS_TEMPLATE = r"""
                                     }
                                 }
                                 if (started) {
-                                    buffer += preTag;
-                                    flushBuffer(false);
+                                    collectedResponse += preTag;
+                                    renderResponse();
+                                } else {
+                                    collectedResponse += preTag;
                                 }
-                                collectedResponse += preTag;
                             }
                             isThinking = true;
                             const details = document.createElement('details');
@@ -658,7 +714,7 @@ FRONTEND_JS_TEMPLATE = r"""
                             thoughtDiv = document.createElement('div');
                             thoughtDiv.className = 'sxng-thought-content';
                             details.appendChild(thoughtDiv);
-                            (cursor ? cursor.before(details) : data.appendChild(details));
+                            (responseEl ? responseEl.before(details) : (cursor ? cursor.before(details) : data.appendChild(details)));
                             
                             streamBuffer = streamBuffer.substring(openIdx + 7);
                         } else {
@@ -688,10 +744,11 @@ FRONTEND_JS_TEMPLATE = r"""
                             }
                         }
                         if (started) {
-                            buffer += streamBuffer;
-                            flushBuffer(false);
+                            collectedResponse += streamBuffer;
+                            renderResponse();
+                        } else {
+                            collectedResponse += streamBuffer;
                         }
-                        collectedResponse += streamBuffer; 
                     }
                     streamBuffer = '';
                 }
@@ -729,29 +786,17 @@ FRONTEND_JS_TEMPLATE = r"""
                     if (isThinking && thoughtDiv) {
                         thoughtDiv.textContent += streamBuffer;
                     } else {
-                        buffer += streamBuffer;
                         collectedResponse += streamBuffer;
                     }
                 }
             }
             
-            flushBuffer(true);
+            renderResponse();
             
             if (cursor) cursor.remove();
 
-            let last = data.lastChild;
-            while (last) {
-                if (last.textContent && last.textContent.trim().length === 0) {
-                    const prev = last.previousSibling;
-                    last.remove();
-                    last = prev;
-                } else {
-                    if (last.textContent) last.textContent = last.textContent.trimEnd();
-                    break;
-                }
-            }
-
             if (!started && !collectedResponse.trim()) {
+                responseEl.remove();
                 const cursor = data.querySelector('.sxng-cursor');
                 if (cursor) cursor.remove();
                 
@@ -1141,7 +1186,7 @@ class SXNGPlugin(Plugin):
                 "MUST CITE SOURCES by tailing a sentence with [n] or [n,n] etc. If citing general knowledge, use [*].",
                 "Do not use filler words, transitions, or meta-commentary.",
                 "Never explain your process. The user expects a direct response.",
-                "Response format must be plain text with no markdown. Break the answer into short paragraphs (2-4 sentences each) separated by a blank line.",
+                "Use concise Markdown where it improves readability: short headings, paragraphs, lists, emphasis, blockquotes, and code. Do not use raw HTML or Markdown tables; present tabular or comparative information as concise bullet lists instead. Keep paragraphs to 2-4 sentences.",
                 f"High density: Expert-briefing level. Target response length: ~{target_words} words.",
                 "If sources and general knowledge are insufficient, respond with 'Insufficient information to answer.'"
             ]
@@ -1564,6 +1609,8 @@ class SXNGPlugin(Plugin):
                             position: relative;
                             margin: 0;
                             min-height: 1.5em;
+                            color: var(--color-result-description);
+                            font-size: 0.95rem;
                         }}
                         .sxng-cursor {{
                             display: inline-block;
@@ -1578,6 +1625,35 @@ class SXNGPlugin(Plugin):
                         .sxng-chunk {{
                             opacity: 1;
                         }}
+                        .sxng-markdown > :first-child {{ margin-top: 0; }}
+                        .sxng-markdown > :last-child {{ margin-bottom: 0; }}
+                        .sxng-markdown p {{ margin: 0 0 0.8rem; }}
+                        .sxng-markdown h1, .sxng-markdown h2, .sxng-markdown h3,
+                        .sxng-markdown h4, .sxng-markdown h5, .sxng-markdown h6 {{
+                            color: var(--color-base-font); line-height: 1.3; margin: 1rem 0 0.45rem;
+                        }}
+                        .sxng-markdown h1 {{ font-size: 1.35rem; }}
+                        .sxng-markdown h2 {{ font-size: 1.22rem; }}
+                        .sxng-markdown h3 {{ font-size: 1.1rem; }}
+                        .sxng-markdown h4, .sxng-markdown h5, .sxng-markdown h6 {{ font-size: 1rem; }}
+                        .sxng-markdown ul, .sxng-markdown ol {{ margin: 0.4rem 0 0.8rem; padding-left: 1.6rem; }}
+                        .sxng-markdown li {{ margin: 0.2rem 0; }}
+                        .sxng-markdown blockquote {{
+                            margin: 0.6rem 0 0.8rem; padding: 0.25rem 0 0.25rem 0.8rem;
+                            border-left: 3px solid var(--color-result-link, #5e81ac); opacity: 0.85;
+                        }}
+                        .sxng-markdown code {{
+                            padding: 0.1em 0.3em; border-radius: 4px;
+                            background: var(--color-base-background-hover, rgba(0,0,0,0.06));
+                            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+                        }}
+                        .sxng-markdown pre {{
+                            overflow-x: auto; margin: 0.6rem 0 0.8rem; padding: 0.75rem;
+                            border-radius: 6px; background: var(--color-base-background-hover, rgba(0,0,0,0.06));
+                        }}
+                        .sxng-markdown pre code {{ padding: 0; background: transparent; white-space: pre; }}
+                        .sxng-markdown a {{ color: var(--color-result-link); }}
+                        .sxng-citation {{ text-decoration: none; color: var(--color-result-link); font-weight: bold; }}
                         @media (min-width: 769px) {{
                             .sxng-chunk {{
                                 animation: sxng-fade-in 0.3s ease-out;
@@ -1598,7 +1674,7 @@ class SXNGPlugin(Plugin):
                         {interactive_css}
                     </style>
                     <div id="sxng-answer-wrap" class="{collapsed_class}">
-                        <p id="sxng-stream-data" style="white-space: pre-wrap; color: var(--color-result-description); font-size: 0.95rem; margin:0;"><span class="sxng-cursor"></span></p>
+                        <div id="sxng-stream-data"><span class="sxng-cursor"></span></div>
                         <div class="sxng-show-more-wrap" onclick="document.getElementById('sxng-answer-wrap').classList.remove('sxng-collapsed'); this.style.display='none';">
                             <button class="sxng-show-more-btn">Show more</button>
                         </div>
