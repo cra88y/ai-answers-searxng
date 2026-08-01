@@ -6,6 +6,7 @@ A SearXNG plugin that generates AI answers using search results as RAG context. 
 
 Features:
 - token-by-token UI streaming
+- safe Markdown formatting for headings, lists, links, quotes, emphasis, and code
 - clickable inline citations
 - interactive mode to continue summary, ask follow ups, copy, or regenerate
 - simple response mode with no extras
