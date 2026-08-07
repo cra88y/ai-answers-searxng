@@ -473,6 +473,8 @@ FRONTEND_JS_TEMPLATE = r"""
     const box = document.getElementById('sxng-stream-box');
     const data = document.getElementById('sxng-stream-data');
     const answerWrap = document.getElementById('sxng-answer-wrap');
+    const answersContainer = box.closest('#answers');
+    if (answersContainer) answersContainer.classList.add('sxng-ai-answers-container');
     const wrapper = box.closest('.answer');
     if (wrapper) wrapper.style.display = 'none';
     let restored = false;
@@ -1577,6 +1579,11 @@ class SXNGPlugin(Plugin):
                         }}
                         .sxng-chunk {{
                             opacity: 1;
+                        }}
+                        @media screen and (min-width: 50em) and (max-width: 79.75em) {{
+                            .center-alignment-yes #main_results #answers.sxng-ai-answers-container {{
+                                margin-inline-start: 3rem;
+                            }}
                         }}
                         @media (min-width: 769px) {{
                             .sxng-chunk {{
