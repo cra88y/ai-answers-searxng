@@ -1591,7 +1591,7 @@ class SXNGPlugin(Plugin):
                             }}
                         }}
                         #sxng-answer-wrap {{ position: relative; }}
-                        #sxng-answer-wrap.sxng-collapsed {{ height: 14rem; overflow: hidden; }}
+                        #sxng-answer-wrap.sxng-collapsed {{ max-height: 14rem; overflow: hidden; }}
                         .sxng-show-more-wrap {{
                             display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 4rem;
                             background: linear-gradient(to bottom, transparent, var(--color-base-background, #fff));
